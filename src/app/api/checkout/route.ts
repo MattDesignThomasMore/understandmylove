@@ -113,7 +113,7 @@ export async function POST(request: Request) {
       custom_text: {
         submit: {
           message:
-            "",
+            "€1,99 today. Full access for 7 days. After 7 days, €29,99/month until you cancel. Cancel anytime.",
         },
       },
 
