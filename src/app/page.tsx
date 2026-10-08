@@ -689,7 +689,8 @@ export default function Home() {
                   <div className="lr-question-options">
                     {quizQuestions[quizStep].options.map((option, index) => (
                       <button
-                        key={option.label}
+                        key={`quiz-${quizStep}-${option.value}`}
+                        type="button"
                         onClick={(event) => {
                           // Explicitly remove focus from the tapped answer.
                           // This prevents iOS/Android browsers from carrying
