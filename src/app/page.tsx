@@ -24,7 +24,13 @@ function normalizeQuiz(value: unknown): SavedQuiz | null {
   if (!x.answers.every((a: unknown, i: number) => quizQuestions[i]?.options.some(o => o.value === a))) return null;
   const answers = x.answers as ResultKey[];
   const completed = answers.length === quizQuestions.length;
-  const stage: JourneyStage = completed ? "offer" : answers.length > 0 ? "questions" : x.stage === "intro" ? "intro" : "home";
+  const stage: JourneyStage = completed
+    ? "offer"
+    : answers.length > 0 || x.stage === "questions"
+      ? "questions"
+      : x.stage === "intro"
+        ? "intro"
+        : "home";
   return { version: 3, stage, step: Math.min(answers.length, quizQuestions.length-1), answers, updatedAt: typeof x.updatedAt === "number" ? x.updatedAt : Date.now() };
 }
 function readSavedQuiz(): SavedQuiz | null {
