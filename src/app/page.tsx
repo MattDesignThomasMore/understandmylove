@@ -4,6 +4,43 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 type ResultKey = "communication" | "time" | "actions" | "spark" | "gifts" | "warmth" | "reassurance" | "growth";
 type JourneyStage = "home" | "intro" | "questions" | "analyzing" | "offer";
+type SavedQuiz = { version: 3; stage: JourneyStage; step: number; answers: ResultKey[]; updatedAt: number };
+const STORAGE_KEY = "uml-quiz-v3";
+const OLD_STORAGE_KEY = "uml-quiz-v2";
+const VALID_KEYS: ResultKey[] = ["communication", "time", "actions", "spark", "gifts", "warmth", "reassurance", "growth"];
+
+function calculateResults(answers: ResultKey[]): [ResultKey, ResultKey] {
+  const opportunities = Object.fromEntries(VALID_KEYS.map(k => [k, 0])) as Record<ResultKey, number>;
+  quizQuestions.forEach(q => q.options.forEach(o => { opportunities[o.value]++; }));
+  const wins = Object.fromEntries(VALID_KEYS.map(k => [k, 0])) as Record<ResultKey, number>;
+  answers.forEach(a => { wins[a]++; });
+  const ranked = [...VALID_KEYS].sort((a,b) => (wins[b]+1)/(opportunities[b]+2) - (wins[a]+1)/(opportunities[a]+2) || wins[b]-wins[a]);
+  return [ranked[0], ranked[1]];
+}
+function normalizeQuiz(value: unknown): SavedQuiz | null {
+  if (!value || typeof value !== "object") return null;
+  const x = value as Record<string, unknown>;
+  if (!Array.isArray(x.answers) || x.answers.length > quizQuestions.length) return null;
+  if (!x.answers.every((a: unknown, i: number) => quizQuestions[i]?.options.some(o => o.value === a))) return null;
+  const answers = x.answers as ResultKey[];
+  const completed = answers.length === quizQuestions.length;
+  const stage: JourneyStage = completed ? "offer" : answers.length > 0 ? "questions" : x.stage === "intro" ? "intro" : "home";
+  return { version: 3, stage, step: Math.min(answers.length, quizQuestions.length-1), answers, updatedAt: typeof x.updatedAt === "number" ? x.updatedAt : Date.now() };
+}
+function readSavedQuiz(): SavedQuiz | null {
+  if (typeof window === "undefined") return null;
+  for (const storage of [window.localStorage, window.sessionStorage]) {
+    for (const key of [STORAGE_KEY, OLD_STORAGE_KEY]) {
+      try { const raw = storage.getItem(key); if (raw) { const saved = normalizeQuiz(JSON.parse(raw)); if (saved) return saved; } } catch { /* Storage unavailable */ }
+    }
+  }
+  return null;
+}
+function saveQuiz(snapshot: SavedQuiz) {
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot)); } catch { /* Private browsing or quota */ }
+  try { sessionStorage.setItem(STORAGE_KEY, JSON.stringify(snapshot)); } catch { /* Storage unavailable */ }
+}
+
 
 const loveImages = {
   conversation: "https://images.unsplash.com/photo-1746813629190-80f67d5050fa?auto=format&fit=crop&w=1600&q=90",
@@ -268,11 +305,10 @@ export default function Home() {
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [journeyStage, setJourneyStage] = useState<JourneyStage>("home");
   const [quizStep, setQuizStep] = useState(0);
-  const [quizAnswers, setQuizAnswers] = useState<ResultKey[]>([]);
   const [quizResultKey, setQuizResultKey] = useState<ResultKey>("communication");
   const [secondaryResultKey, setSecondaryResultKey] = useState<ResultKey>("time");
   const [selectedAnswer, setSelectedAnswer] = useState<ResultKey | null>(null);
-  const transitionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const transitionTimer = useRef<number | null>(null);
   const answerLocked = useRef(false);
   const [restored, setRestored] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
@@ -287,84 +323,82 @@ export default function Home() {
   const previousSlide = () =>
     setSlide((current) => (current - 1 + expressions.length) % expressions.length);
 
-  const openQuiz = () => {
-    clearAnswerTransition();
-    setQuizAnswers([]);
-    setQuizStep(0);
-    setJourneyStage("intro");
+  const snapshotRef = useRef<SavedQuiz>({version:3,stage:"home",step:0,answers:[],updatedAt:0});
+  const applySnapshot = (saved: SavedQuiz) => {
+    snapshotRef.current = saved;
+    setQuizStep(saved.step);
+    const [primary, secondary] = calculateResults(saved.answers);
+    setQuizResultKey(primary);
+    setSecondaryResultKey(secondary);
+    setJourneyStage(saved.stage);
   };
-
+  const commitSnapshot = (answers: ResultKey[], stage: JourneyStage) => {
+    const normalized = normalizeQuiz({answers,stage,updatedAt:Date.now()});
+    if (!normalized) return;
+    snapshotRef.current = normalized;
+    saveQuiz(normalized);
+    applySnapshot(normalized);
+  };
   const clearAnswerTransition = () => {
-    if (transitionTimer.current !== null) clearTimeout(transitionTimer.current);
+    if (transitionTimer.current !== null) window.clearTimeout(transitionTimer.current);
     transitionTimer.current = null;
     answerLocked.current = false;
     setSelectedAnswer(null);
   };
-
+  const openQuiz = () => {
+    clearAnswerTransition();
+    const current = snapshotRef.current;
+    if (current.answers.length > 0) {
+      applySnapshot({...current,stage:current.answers.length === quizQuestions.length ? "offer" : "questions"});
+    } else {
+      commitSnapshot([],"intro");
+    }
+  };
   const answerQuizQuestion = (value: ResultKey) => {
-    if (answerLocked.current) return;
+    if (!restored || answerLocked.current || snapshotRef.current.stage !== "questions") return;
+    const current = snapshotRef.current;
+    if (current.answers.length >= quizQuestions.length) return;
+    if (!quizQuestions[current.answers.length].options.some(o => o.value === value)) return;
     answerLocked.current = true;
     setSelectedAnswer(value);
-    const nextAnswers = [...quizAnswers.slice(0, quizStep), value];
-    transitionTimer.current = setTimeout(() => {
+    const nextAnswers = [...current.answers, value];
+    // Write immediately, before animation, navigation, tab closing or pagehide.
+    const completed = nextAnswers.length === quizQuestions.length;
+    const next = normalizeQuiz({answers:nextAnswers,stage:completed?"offer":"questions",updatedAt:Date.now()});
+    if (next) { snapshotRef.current = next; saveQuiz(next); }
+    transitionTimer.current = window.setTimeout(() => {
       transitionTimer.current = null;
       setSelectedAnswer(null);
       if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
-      setQuizAnswers(nextAnswers);
-      if (quizStep === quizQuestions.length - 1) {
-        const keys = Object.keys(resultProfiles) as ResultKey[];
-        const opportunities = Object.fromEntries(keys.map((key) => [key, 0])) as Record<ResultKey, number>;
-        quizQuestions.forEach((question) => question.options.forEach((option) => { opportunities[option.value] += 1; }));
-        const wins = Object.fromEntries(keys.map((key) => [key, 0])) as Record<ResultKey, number>;
-        nextAnswers.forEach((answer) => { wins[answer] += 1; });
-        const ranked = keys.sort((a, b) => {
-          const aRate = (wins[a] + 1) / (opportunities[a] + 2);
-          const bRate = (wins[b] + 1) / (opportunities[b] + 2);
-          return bRate - aRate || wins[b] - wins[a];
-        });
-        setQuizResultKey(ranked[0] || "communication");
-        setSecondaryResultKey(ranked[1] || "time");
-        setJourneyStage("analyzing");
-      } else {
-        setQuizStep(quizStep + 1);
-      }
+      if (next) applySnapshot({...next,stage:completed?"analyzing":"questions"});
       answerLocked.current = false;
-    }, 220);
+    },220);
   };
-
-  // Restore before saving: never overwrite the saved report with the initial home state.
   useEffect(() => {
-    try {
-      const raw = sessionStorage.getItem("uml-quiz-v2");
-      if (raw) {
-        const saved = JSON.parse(raw);
-        const keys = Object.keys(resultProfiles);
-        if (Array.isArray(saved.answers) && saved.answers.length <= quizQuestions.length &&
-            saved.answers.every((answer: unknown) => keys.includes(String(answer))) &&
-            Number.isInteger(saved.step) && saved.step >= 0 && saved.step < quizQuestions.length &&
-            ["intro", "questions", "analyzing", "offer"].includes(saved.stage) &&
-            keys.includes(saved.primary) && keys.includes(saved.secondary)) {
-          setQuizAnswers(saved.answers);
-          setQuizStep(saved.step);
-          setQuizResultKey(saved.primary);
-          setSecondaryResultKey(saved.secondary);
-          setJourneyStage(saved.stage === "analyzing" ? "offer" : saved.stage);
-        }
-      }
-    } catch { /* Ignore unavailable storage or malformed data. */ }
+    const saved = readSavedQuiz();
+    if (saved) { applySnapshot(saved); saveQuiz(saved); }
     setRestored(true);
-    return () => { if (transitionTimer.current !== null) clearTimeout(transitionTimer.current); };
+    const onPageHide = () => saveQuiz(snapshotRef.current);
+    const onVisibility = () => { if (document.visibilityState === "hidden") onPageHide(); };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key !== STORAGE_KEY || !event.newValue || answerLocked.current) return;
+      try {
+        const incoming = normalizeQuiz(JSON.parse(event.newValue));
+        if (incoming && incoming.updatedAt > snapshotRef.current.updatedAt) {
+          clearAnswerTransition(); applySnapshot(incoming);
+        }
+      } catch { /* Ignore corrupt data */ }
+    };
+    window.addEventListener("pagehide",onPageHide);
+    document.addEventListener("visibilitychange",onVisibility);
+    window.addEventListener("storage",onStorage);
+    return () => {
+      window.removeEventListener("pagehide",onPageHide);
+      document.removeEventListener("visibilitychange",onVisibility);
+      window.removeEventListener("storage",onStorage);
+      if (transitionTimer.current !== null) window.clearTimeout(transitionTimer.current);
+    };
   }, []);
-
-  useEffect(() => {
-    if (!restored) return;
-    try {
-      sessionStorage.setItem("uml-quiz-v2", JSON.stringify({
-        stage: journeyStage, step: quizStep, answers: quizAnswers,
-        primary: quizResultKey, secondary: secondaryResultKey,
-      }));
-    } catch { /* Storage may be disabled. */ }
-  }, [restored, journeyStage, quizStep, quizAnswers, quizResultKey, secondaryResultKey]);
 
   const result = resultProfiles[quizResultKey];
   const secondaryResult = resultProfiles[secondaryResultKey];
@@ -372,7 +406,7 @@ export default function Home() {
 
   useEffect(() => {
     if (journeyStage !== "analyzing") return;
-    const timer = window.setTimeout(() => setJourneyStage("offer"), 2600);
+    const timer = window.setTimeout(() => commitSnapshot(snapshotRef.current.answers,"offer"), 2600);
     return () => window.clearTimeout(timer);
   }, [journeyStage]);
 
@@ -387,23 +421,19 @@ export default function Home() {
 
   const goBackInQuiz = () => {
     clearAnswerTransition();
-    if (quizStep === 0) {
-      setJourneyStage("intro");
-      return;
-    }
-    setQuizAnswers((current) => current.slice(0, -1));
-    setQuizStep((current) => current - 1);
+    const current = snapshotRef.current;
+    if (current.answers.length === 0) { commitSnapshot([],"intro"); return; }
+    commitSnapshot(current.answers.slice(0,-1),"questions");
   };
-
-  const closeJourney = () => { clearAnswerTransition(); setJourneyStage("home"); };
+  const closeJourney = () => {
+    clearAnswerTransition();
+    // Hide the overlay without erasing the checkpoint. It reopens on return.
+    setJourneyStage("home");
+  };
 
   const handleCheckout = async () => {
     if (checkoutLoading) return;
-    // Save synchronously before navigating to Stripe.
-    try { sessionStorage.setItem("uml-quiz-v2", JSON.stringify({
-      stage: "offer", step: quizStep, answers: quizAnswers,
-      primary: quizResultKey, secondary: secondaryResultKey,
-    })); } catch { /* Storage may be disabled. */ }
+    saveQuiz({...snapshotRef.current,stage:"offer",updatedAt:Date.now()});
     setCheckoutLoading(true);
     setCheckoutError("");
     try {
@@ -721,7 +751,7 @@ export default function Home() {
                   <span><i>✓</i><b>There are no wrong answers</b><small>Your first instinct is usually enough.</small></span>
                   <span><i>✓</i><b>Your answers stay private</b><small>Created for honest self-reflection.</small></span>
                 </div>
-                <button className="lr-button lr-button--primary lr-button--hero" onClick={() => setJourneyStage("questions")}>Start Test <Arrow /></button>
+                <button className="lr-button lr-button--primary lr-button--hero" onClick={() => commitSnapshot(snapshotRef.current.answers,"questions")}>Start Test <Arrow /></button>
                 <small className="lr-journey-intro__time">24 gentle choices · About 4 minutes</small>
               </div>
               <div className="lr-journey-intro__visual">
