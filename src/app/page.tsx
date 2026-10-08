@@ -827,9 +827,7 @@ export default function Home() {
               textAlign: "center",
             }}
           >
-            €1,99 today. After 7 days, €29,99/month.
-            <br />
-            Cancel anytime.
+           
           </div>
 
           <button

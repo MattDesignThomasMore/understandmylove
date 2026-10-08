@@ -142,7 +142,7 @@ export default function CancelSubscriptionPage() {
               <span className="cs-eyebrow">GOOD TO KNOW</span>
               <h3>A little clarity goes a long way.</h3>
               <p>Here's a reminder of the subscription offer displayed on UnderstandMylove.</p>
-              <div className="cs-price-row"><span>Initial access</span><strong>€1,95 / 7 days</strong></div>
+              <div className="cs-price-row"><span>Initial access</span><strong>€1,99 / 7 days</strong></div>
               <div className="cs-price-row"><span>Then renews</span><strong>€29,95 / 4 weeks</strong></div>
               <p className="cs-small-note">The terms that apply to your purchase are those confirmed at your checkout. Cancellation stops future renewals once completed.</p>
             </div>
