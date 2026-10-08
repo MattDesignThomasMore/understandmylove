@@ -3,89 +3,133 @@ import Stripe from "stripe";
 
 export const runtime = "nodejs";
 
+const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+
+if (!stripeSecretKey) {
+  throw new Error("Missing STRIPE_SECRET_KEY.");
+}
+
+const stripe = new Stripe(stripeSecretKey);
+
 const OFFER_ID = "lover-reveal-trial";
 const PRODUCT_ID = "your-personal-love-report";
-const RECURRING_PRICE_ID = process.env.STRIPE_RECURRING_PRICE_ID || "price_1UNvUgPSE25Qj4T2oo5Df8Et";
+const RECURRING_PRICE_ID = "price_1UNvUgPSE25Qj4T2oo5Df8Et";
+
+// Customer pays €1.99 now.
 const INITIAL_AMOUNT = 199;
+// Then €29.99/month after the 7-day trial.
 const RECURRING_AMOUNT = 2999;
 const TRIAL_DAYS = 7;
 
 export async function POST(request: Request) {
   try {
-    const secret = process.env.STRIPE_SECRET_KEY;
-    if (!secret) return NextResponse.json({ error: "Checkout is not configured." }, { status: 503 });
-    const stripe = new Stripe(secret);
     const body = await request.json();
-    const attempt = typeof body?.checkoutAttemptId === "string" ? body.checkoutAttemptId : "";
-    const primary = typeof body?.primaryResult === "string" ? body.primaryResult.slice(0, 80) : "";
-    if (!/^[a-zA-Z0-9-]{12,100}$/.test(attempt)) {
-      return NextResponse.json({ error: "Invalid checkout attempt." }, { status: 400 });
+
+    const primaryResult =
+      typeof body?.primaryResult === "string"
+        ? body.primaryResult.trim()
+        : "";
+
+    const checkoutAttemptId =
+      typeof body?.checkoutAttemptId === "string"
+        ? body.checkoutAttemptId.trim()
+        : "";
+
+    if (!checkoutAttemptId) {
+      return NextResponse.json(
+        { error: "Invalid checkout attempt." },
+        { status: 400 },
+      );
     }
 
-    // Verify configuration rather than accidentally charging an incorrect price.
-    const recurringPrice = await stripe.prices.retrieve(RECURRING_PRICE_ID);
-    if (!recurringPrice.active || recurringPrice.currency !== "eur" ||
-        recurringPrice.unit_amount !== RECURRING_AMOUNT ||
-        recurringPrice.recurring?.interval !== "month" ||
-        recurringPrice.recurring?.interval_count !== 1) {
-      throw new Error("Recurring Stripe price does not match the displayed offer.");
-    }
+    const origin = (
+      process.env.NEXT_PUBLIC_APP_URL ||
+      request.headers.get("origin") ||
+      "https://understandmylove.com"
+    ).replace(/\/+$/, "");
 
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL || "https://www.understandmylove.com";
-    const origin = new URL(appUrl).origin;
     const successUrl = new URL("/checkout/success", origin);
     successUrl.searchParams.set("payment", "success");
     successUrl.searchParams.set("session_id", "{CHECKOUT_SESSION_ID}");
-    const cancelUrl = new URL("/", origin);
-    cancelUrl.searchParams.set("resume", "report");
+
+    const cancelUrl = new URL("/?resume=report", origin);
     cancelUrl.searchParams.set("payment", "cancelled");
 
-    // Subscription Checkout lets Stripe display only payment methods that
-    // support this recurring payment and are enabled for this Stripe account.
     const session = await stripe.checkout.sessions.create({
-      mode: "subscription",
-      client_reference_id: attempt,
-      locale: "auto",
-      billing_address_collection: "auto",
-      phone_number_collection: { enabled: false },
+      mode: "payment",
+
+      client_reference_id: checkoutAttemptId,
+
       line_items: [
-        { price: RECURRING_PRICE_ID, quantity: 1 },
-        { price_data: {
+        {
+          price_data: {
             currency: "eur",
             unit_amount: INITIAL_AMOUNT,
             product_data: {
-              name: "Introductory access",
+              name: "Your personal love report",
+              description: "Instant access • One-time payment • Receive in mailbox",
             },
-          }, quantity: 1 },
+          },
+          quantity: 1,
+        },
       ],
-      subscription_data: {
-        trial_period_days: TRIAL_DAYS,
-        trial_settings: { end_behavior: { missing_payment_method: "cancel" } },
+
+      // Card is required because the same saved card is used later for
+      // the off-session €29.99/month subscription.
+      payment_method_types: ["card"],
+
+      locale: "auto",
+      billing_address_collection: "auto",
+      customer_creation: "always",
+
+      // Tell Stripe to save the payment method for future off-session use.
+      payment_intent_data: {
+        setup_future_usage: "off_session",
         metadata: {
-          product: PRODUCT_ID,
-          offer: OFFER_ID,
-          checkout_attempt_id: attempt,
-          primary_result: primary,
-          recurring_price_id: RECURRING_PRICE_ID,
+          understandmylove_product: PRODUCT_ID,
+          understandmylove_offer: OFFER_ID,
+          checkout_attempt_id: checkoutAttemptId,
+          primary_result: primaryResult,
+          initial_amount: String(INITIAL_AMOUNT),
+          recurring_amount: String(RECURRING_AMOUNT),
+          recurring_currency: "eur",
+          recurring_interval: "month",
+          trial_days: String(TRIAL_DAYS),
         },
       },
+
       metadata: {
         product: PRODUCT_ID,
         offer: OFFER_ID,
-        checkoutAttemptId: attempt,
-        primaryResult: primary,
+        checkoutAttemptId,
+        primaryResult,
+        recurring_price_id: RECURRING_PRICE_ID,
+        trial_days: String(TRIAL_DAYS),
+        upfront_amount: String(INITIAL_AMOUNT),
+        recurring_amount: String(RECURRING_AMOUNT),
+        recurring_interval: "month",
       },
-      // Dynamic payment methods: Stripe chooses eligible recurring-compatible
-      // local methods and wallets for the customer and connected account.
-      // Do not force payment_method_types or payment_method_configuration.
+
+      
+
       success_url: successUrl.toString(),
       cancel_url: cancelUrl.toString(),
-    }, { idempotencyKey: `uml-checkout-${attempt}` });
+    });
 
-    if (!session.url) throw new Error("Checkout session has no URL.");
+    if (!session.url) {
+      return NextResponse.json(
+        { error: "Unable to create checkout session." },
+        { status: 500 },
+      );
+    }
+
     return NextResponse.json({ url: session.url });
   } catch (error) {
-    console.error("Checkout creation failed:", error);
-    return NextResponse.json({ error: "Unable to start checkout. Please try again." }, { status: 500 });
+    console.error("Stripe Checkout error:", error);
+
+    return NextResponse.json(
+      { error: "Unable to start checkout. Please try again." },
+      { status: 500 },
+    );
   }
 }
