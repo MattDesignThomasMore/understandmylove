@@ -317,6 +317,7 @@ export default function Home() {
   const transitionTimer = useRef<number | null>(null);
   const answerLocked = useRef(false);
   const [restored, setRestored] = useState(false);
+  const [hasCheckpoint, setHasCheckpoint] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState("");
 
@@ -332,6 +333,7 @@ export default function Home() {
   const snapshotRef = useRef<SavedQuiz>({version:3,stage:"home",step:0,answers:[],updatedAt:0});
   const applySnapshot = (saved: SavedQuiz) => {
     snapshotRef.current = saved;
+    setHasCheckpoint(saved.answers.length > 0);
     setQuizStep(saved.step);
     const [primary, secondary] = calculateResults(saved.answers);
     setQuizResultKey(primary);
@@ -342,6 +344,7 @@ export default function Home() {
     const normalized = normalizeQuiz({answers,stage,updatedAt:Date.now()});
     if (!normalized) return;
     snapshotRef.current = normalized;
+    setHasCheckpoint(normalized.answers.length > 0);
     saveQuiz(normalized);
     applySnapshot(normalized);
   };
@@ -371,7 +374,7 @@ export default function Home() {
     // Write immediately, before animation, navigation, tab closing or pagehide.
     const completed = nextAnswers.length === quizQuestions.length;
     const next = normalizeQuiz({answers:nextAnswers,stage:completed?"offer":"questions",updatedAt:Date.now()});
-    if (next) { snapshotRef.current = next; saveQuiz(next); }
+    if (next) { snapshotRef.current = next; setHasCheckpoint(true); saveQuiz(next); }
     transitionTimer.current = window.setTimeout(() => {
       transitionTimer.current = null;
       setSelectedAnswer(null);
@@ -382,7 +385,21 @@ export default function Home() {
   };
   useEffect(() => {
     const saved = readSavedQuiz();
-    if (saved) { applySnapshot(saved); saveQuiz(saved); }
+    if (saved) {
+      // Never open the intro for a first-time visitor. Only an actual answered
+      // question counts as progress. An unfinished quiz resumes automatically.
+      // A completed report opens directly only on explicit Stripe return.
+      const explicitReportReturn = new URLSearchParams(window.location.search).get("resume") === "report";
+      const shouldResume = saved.answers.length > 0 &&
+        (saved.answers.length < quizQuestions.length || explicitReportReturn);
+      applySnapshot({...saved, stage: shouldResume ? saved.stage : "home"});
+      saveQuiz(saved);
+      if (explicitReportReturn) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("resume");
+        window.history.replaceState(window.history.state, "", url.pathname + url.search + url.hash);
+      }
+    }
     setRestored(true);
     const onPageHide = () => saveQuiz(snapshotRef.current);
     const onVisibility = () => { if (document.visibilityState === "hidden") onPageHide(); };
@@ -496,7 +513,7 @@ export default function Home() {
             </p>
             <div className="lr-hero__actions">
               <button className="lr-button lr-button--primary lr-button--hero" onClick={openQuiz}>
-                Take The Test
+                {hasCheckpoint ? (snapshotRef.current.answers.length === quizQuestions.length ? "View my results" : "Continue my test") : "Take The Test"}
                 <Arrow />
               </button>
               <span className="lr-hero__note">
