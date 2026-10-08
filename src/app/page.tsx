@@ -851,21 +851,17 @@ export default function Home() {
           </div>
 
           <div className="new-offer__price">
-            <div>
-              <small>
-                START YOUR 7-DAY FULL ACCESS
-              </small>
-
-              <strong>
-                €1,99 <span>today</span>
-              </strong>
+            <small className="new-offer__price-label">START YOUR 7-DAY FULL ACCESS</small>
+            <div className="new-offer__price-details">
+              <div className="new-offer__price-amount">
+                <strong>€1,99</strong>
+                <span>today</span>
+              </div>
+              <div className="new-offer__price-benefits">
+                <span>Full personal report</span>
+                <span>Instant access</span>
+              </div>
             </div>
-
-            <span>
-              Full personal report
-              <br />
-              Instant access
-            </span>
           </div>
 
           <div
@@ -1227,6 +1223,73 @@ export default function Home() {
         @media (max-width:360px) {
           .lr-journey--intro .lr-journey-intro__copy { padding-inline:6px; }
           .lr-journey--intro .lr-journey-intro__copy h2 { font-size:38px; }
+        }
+
+        /* Price panel: tidy two-column layout on phone, tablet and desktop */
+        .new-offer__price{
+          display:flex!important;
+          flex-direction:column!important;
+          align-items:stretch!important;
+          flex-wrap:nowrap!important;
+          gap:12px!important;
+          padding:20px 22px!important;
+        }
+        .new-offer__price-label{
+          display:block;
+          font-size:10px!important;
+          font-weight:850!important;
+          letter-spacing:.10em!important;
+          line-height:1.45;
+        }
+        .new-offer__price-details{
+          display:grid;
+          grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+          align-items:center;
+          column-gap:12px;
+          width:100%;
+          min-width:0;
+        }
+        .new-offer__price-amount{
+          display:flex;
+          flex-wrap:wrap;
+          align-items:baseline;
+          gap:5px 10px;
+          min-width:0;
+        }
+        .new-offer__price-amount strong{
+          margin:0!important;
+          font:600 clamp(32px,4vw,40px)/1.1 var(--serif)!important;
+          letter-spacing:-.035em;
+          white-space:nowrap;
+        }
+        .new-offer__price-amount>span{
+          font-size:12px;
+          color:#68776e;
+          white-space:nowrap;
+        }
+        .new-offer__price-benefits{
+          display:flex;
+          flex-direction:column;
+          align-items:flex-end;
+          gap:5px;
+          text-align:right;
+          min-width:0;
+          color:#64756e;
+          font-size:12px;
+          line-height:1.4;
+        }
+        @media(max-width:520px){
+          .new-offer__price{padding:17px 16px!important;gap:13px!important}
+          .new-offer__price-details{grid-template-columns:minmax(0,1fr) minmax(0,1fr);column-gap:8px}
+          .new-offer__price-amount{gap:3px 7px}
+          .new-offer__price-amount strong{font-size:clamp(30px,8vw,38px)!important}
+          .new-offer__price-amount>span{font-size:11px}
+          .new-offer__price-benefits{font-size:clamp(10px,2.8vw,12px);gap:4px}
+        }
+        @media(max-width:370px){
+          .new-offer__price{padding:15px 12px!important}
+          .new-offer__price-amount strong{font-size:30px!important}
+          .new-offer__price-benefits{width:auto!important;margin-left:0!important;text-align:right!important;font-size:10px}
         }
       `}</style>
     </main>
