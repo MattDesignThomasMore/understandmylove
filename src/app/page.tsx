@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 type ResultKey = "communication" | "time" | "actions" | "spark" | "gifts" | "warmth" | "reassurance" | "growth";
 type JourneyStage = "home" | "intro" | "questions" | "analyzing" | "offer";
@@ -271,6 +271,10 @@ export default function Home() {
   const [quizAnswers, setQuizAnswers] = useState<ResultKey[]>([]);
   const [quizResultKey, setQuizResultKey] = useState<ResultKey>("communication");
   const [secondaryResultKey, setSecondaryResultKey] = useState<ResultKey>("time");
+  const [selectedAnswer, setSelectedAnswer] = useState<ResultKey | null>(null);
+  const transitionTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const answerLocked = useRef(false);
+  const [restored, setRestored] = useState(false);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
   const [checkoutError, setCheckoutError] = useState("");
 
@@ -284,46 +288,83 @@ export default function Home() {
     setSlide((current) => (current - 1 + expressions.length) % expressions.length);
 
   const openQuiz = () => {
+    clearAnswerTransition();
     setQuizAnswers([]);
     setQuizStep(0);
     setJourneyStage("intro");
   };
 
-  const answerQuizQuestion = (value: ResultKey) => {
-    const nextAnswers = [...quizAnswers, value];
-    setQuizAnswers(nextAnswers);
-
-    // Clear the browser's touch/focus state immediately. Mobile Safari/Chrome
-    // can otherwise keep the tapped answer visually active while the next
-    // question is being rendered.
-    if (document.activeElement instanceof HTMLElement) {
-      document.activeElement.blur();
-    }
-
-    if (quizStep === quizQuestions.length - 1) {
-      const keys = Object.keys(resultProfiles) as ResultKey[];
-      const opportunities = Object.fromEntries(keys.map((key) => [key, 0])) as Record<ResultKey, number>;
-      quizQuestions.forEach((question) => question.options.forEach((option) => { opportunities[option.value] += 1; }));
-      const wins = Object.fromEntries(keys.map((key) => [key, 0])) as Record<ResultKey, number>;
-      nextAnswers.forEach((answer) => { wins[answer] += 1; });
-      const ranked = keys.sort((a, b) => {
-        const aRate = (wins[a] + 1) / (opportunities[a] + 2);
-        const bRate = (wins[b] + 1) / (opportunities[b] + 2);
-        return bRate - aRate || wins[b] - wins[a];
-      });
-      setQuizResultKey(ranked[0] || "communication");
-      setSecondaryResultKey(ranked[1] || "time");
-      setJourneyStage("analyzing");
-    } else {
-      window.setTimeout(() => {
-        // Make sure no old touch/focus state survives the question change.
-        if (document.activeElement instanceof HTMLElement) {
-          document.activeElement.blur();
-        }
-        setQuizStep((current) => current + 1);
-      }, 120);
-    }
+  const clearAnswerTransition = () => {
+    if (transitionTimer.current !== null) clearTimeout(transitionTimer.current);
+    transitionTimer.current = null;
+    answerLocked.current = false;
+    setSelectedAnswer(null);
   };
+
+  const answerQuizQuestion = (value: ResultKey) => {
+    if (answerLocked.current) return;
+    answerLocked.current = true;
+    setSelectedAnswer(value);
+    const nextAnswers = [...quizAnswers.slice(0, quizStep), value];
+    transitionTimer.current = setTimeout(() => {
+      transitionTimer.current = null;
+      setSelectedAnswer(null);
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+      setQuizAnswers(nextAnswers);
+      if (quizStep === quizQuestions.length - 1) {
+        const keys = Object.keys(resultProfiles) as ResultKey[];
+        const opportunities = Object.fromEntries(keys.map((key) => [key, 0])) as Record<ResultKey, number>;
+        quizQuestions.forEach((question) => question.options.forEach((option) => { opportunities[option.value] += 1; }));
+        const wins = Object.fromEntries(keys.map((key) => [key, 0])) as Record<ResultKey, number>;
+        nextAnswers.forEach((answer) => { wins[answer] += 1; });
+        const ranked = keys.sort((a, b) => {
+          const aRate = (wins[a] + 1) / (opportunities[a] + 2);
+          const bRate = (wins[b] + 1) / (opportunities[b] + 2);
+          return bRate - aRate || wins[b] - wins[a];
+        });
+        setQuizResultKey(ranked[0] || "communication");
+        setSecondaryResultKey(ranked[1] || "time");
+        setJourneyStage("analyzing");
+      } else {
+        setQuizStep(quizStep + 1);
+      }
+      answerLocked.current = false;
+    }, 220);
+  };
+
+  // Restore before saving: never overwrite the saved report with the initial home state.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("uml-quiz-v2");
+      if (raw) {
+        const saved = JSON.parse(raw);
+        const keys = Object.keys(resultProfiles);
+        if (Array.isArray(saved.answers) && saved.answers.length <= quizQuestions.length &&
+            saved.answers.every((answer: unknown) => keys.includes(String(answer))) &&
+            Number.isInteger(saved.step) && saved.step >= 0 && saved.step < quizQuestions.length &&
+            ["intro", "questions", "analyzing", "offer"].includes(saved.stage) &&
+            keys.includes(saved.primary) && keys.includes(saved.secondary)) {
+          setQuizAnswers(saved.answers);
+          setQuizStep(saved.step);
+          setQuizResultKey(saved.primary);
+          setSecondaryResultKey(saved.secondary);
+          setJourneyStage(saved.stage === "analyzing" ? "offer" : saved.stage);
+        }
+      }
+    } catch { /* Ignore unavailable storage or malformed data. */ }
+    setRestored(true);
+    return () => { if (transitionTimer.current !== null) clearTimeout(transitionTimer.current); };
+  }, []);
+
+  useEffect(() => {
+    if (!restored) return;
+    try {
+      sessionStorage.setItem("uml-quiz-v2", JSON.stringify({
+        stage: journeyStage, step: quizStep, answers: quizAnswers,
+        primary: quizResultKey, secondary: secondaryResultKey,
+      }));
+    } catch { /* Storage may be disabled. */ }
+  }, [restored, journeyStage, quizStep, quizAnswers, quizResultKey, secondaryResultKey]);
 
   const result = resultProfiles[quizResultKey];
   const secondaryResult = resultProfiles[secondaryResultKey];
@@ -345,6 +386,7 @@ export default function Home() {
   const trustpilotUrl = process.env.NEXT_PUBLIC_TRUSTPILOT_URL;
 
   const goBackInQuiz = () => {
+    clearAnswerTransition();
     if (quizStep === 0) {
       setJourneyStage("intro");
       return;
@@ -353,9 +395,15 @@ export default function Home() {
     setQuizStep((current) => current - 1);
   };
 
-  const closeJourney = () => setJourneyStage("home");
+  const closeJourney = () => { clearAnswerTransition(); setJourneyStage("home"); };
 
   const handleCheckout = async () => {
+    if (checkoutLoading) return;
+    // Save synchronously before navigating to Stripe.
+    try { sessionStorage.setItem("uml-quiz-v2", JSON.stringify({
+      stage: "offer", step: quizStep, answers: quizAnswers,
+      primary: quizResultKey, secondary: secondaryResultKey,
+    })); } catch { /* Storage may be disabled. */ }
     setCheckoutLoading(true);
     setCheckoutError("");
     try {
@@ -872,6 +920,14 @@ export default function Home() {
         @media(max-width:1320px){.lr-carousel__button--left{left:-18px}.lr-carousel__button--right{right:-18px}}
         @media(max-width:980px){.lr-section{padding:95px 0}.lr-nav__links{display:none}.lr-hero{padding-top:130px}.lr-hero__grid{grid-template-columns:1fr;gap:45px}.lr-hero__copy{text-align:center}.lr-hero h1,.lr-hero__lead{margin-left:auto;margin-right:auto}.lr-hero__actions,.lr-proof{justify-content:center}.lr-hero__visual{width:min(620px,100%);margin:0 auto}.lr-stats__grid{grid-template-columns:repeat(2,1fr);row-gap:20px}.lr-stats__grid>div:nth-child(2){border-right:0}.lr-story-grid{height:520px}.lr-section-heading--split{grid-template-columns:1fr;gap:20px;text-align:center}.lr-section-heading--split p{margin:auto}.lr-card-grid{grid-template-columns:repeat(2,1fr)}.lr-expression-card:nth-child(3){display:none}.lr-mid-cta__card{gap:40px;padding:45px}.lr-insights__grid{grid-template-columns:1fr;gap:60px}.lr-insights__image{height:570px;width:min(620px,100%);margin:auto}.lr-testimonial-grid{grid-template-columns:1fr}.lr-testimonial-grid article.featured{transform:none}.lr-testimonial-grid article>p{min-height:0}.lr-faq__grid{grid-template-columns:1fr;gap:50px}.lr-faq__intro{position:static;text-align:center}.lr-faq__intro>p{margin-left:auto;margin-right:auto}.lr-footer__top{grid-template-columns:1.2fr repeat(3,1fr);gap:30px}}
         @media(min-width:681px){.lr-hero__actions > .lr-button--hero{min-width:210px;padding-inline:36px}.lr-journey-intro__copy > .lr-button--hero{min-width:278px;justify-content:center}}
+        .lr-question-options button.lr-answer--selected,
+        .lr-question-options button.lr-answer--selected:hover,
+        .lr-question-options button.lr-answer--selected:focus{
+          background:#e76f72!important;border-color:#e76f72!important;color:#fff!important;
+          box-shadow:0 12px 30px rgba(231,111,114,.26)!important;transform:none!important;
+        }
+        .lr-question-options button.lr-answer--selected i{color:#fff!important;border-color:rgba(255,255,255,.55)!important}
+        .lr-question-options button:disabled{cursor:default}
         @media(max-width:680px){.lr-shell{width:min(100% - 34px,1200px)}.lr-section{padding:78px 0}.lr-nav{height:68px}.lr-brand{font-size:20px}.lr-brand__mark{transform:scale(.88)}.lr-nav .lr-button{min-height:38px;padding:0 13px;font-size:12px}.lr-hero{min-height:auto;padding:112px 0 70px}.lr-pill{font-size:9px}.lr-hero h1{font-size:49px;line-height:1}.lr-hero__lead{font-size:15px;line-height:1.65}.lr-hero__actions{flex-direction:column}.lr-button--hero{width:100%}.lr-hero__note{display:none}.lr-proof{margin-top:24px}.lr-hero__visual{min-height:440px;margin-top:10px}.lr-visual-card--main{inset:20px 4px 20px 20px;border-width:8px;border-radius:110px 110px 25px 25px}.lr-floating-card{width:190px;padding:10px}.lr-floating-card--top{top:50px;right:-8px}.lr-floating-card--bottom{bottom:45px;left:-7px}.lr-floating-card__icon{width:36px;height:36px;flex-basis:36px}.lr-floating-card strong{font-size:12px}.lr-floating-card small{font-size:8px}.lr-result-badge{right:15px;bottom:17px;width:214px;padding:9px}.lr-result-badge__icon{width:34px;height:34px;flex-basis:34px}.lr-result-badge strong{font-size:13px}.lr-decoration--flower{display:none}.lr-stats__grid{padding:22px 0}.lr-stats__grid>div{gap:8px;padding:5px 8px}.lr-stats strong{font-size:22px}.lr-stats span{font-size:8px}.lr-section-heading--center{margin-bottom:44px}.lr-section-heading h2,.lr-mid-cta h2,.lr-insights h2,.lr-faq h2,.lr-final-cta h2{font-size:39px}.lr-section-heading p{font-size:14px}.lr-story-grid{display:flex;height:auto;flex-direction:column}.lr-story-card--large{height:420px}.lr-story-side{grid-template-rows:280px auto}.lr-story-quote{padding:28px}.lr-story-quote p{font-size:21px}.lr-steps{grid-template-columns:1fr;gap:24px;margin-top:38px}.lr-section-heading--split{margin-bottom:38px}.lr-card-grid{grid-template-columns:1fr}.lr-expression-card:nth-child(2),.lr-expression-card:nth-child(3){display:none}.lr-expression-card__image{height:240px}.lr-expression-card p{min-height:0}.lr-carousel__button{top:215px;width:42px;height:42px}.lr-carousel__button--left{left:-10px}.lr-carousel__button--right{right:-10px}.lr-mid-cta{padding:55px 0}.lr-mid-cta__card{grid-template-columns:1fr;gap:25px;padding:34px 25px;text-align:center}.lr-mid-cta h2{font-size:36px}.lr-insights__image{height:460px}.lr-insights__image>img{border-radius:110px 24px 24px 24px}.lr-image-stat{right:10px;bottom:17px;width:210px}.lr-insights h2{text-align:center}.lr-insights__content>.lr-kicker{display:block;text-align:center}.lr-accordion__item strong{font-size:16px}.lr-testimonial-grid article{padding:25px}.lr-faq__item>button{padding:21px 19px}.lr-faq__item>button span{font-size:17px}.lr-faq__item>div p{padding-left:19px}.lr-faq__item.open>div p{padding-right:35px}.lr-final-cta{padding:85px 0}.lr-footer__top{grid-template-columns:1fr 1fr;gap:45px 25px}.lr-footer__brand{grid-column:1/-1}.lr-footer__bottom{align-items:flex-start;flex-direction:column;gap:12px}.lr-footer__links:last-child{display:none}}
         .lr-expressions.lr-section{position:relative;padding-top:150px;border-top:1px solid rgba(33,77,69,.07)}
         @media(max-width:980px) and (min-width:681px){.lr-story-grid{height:auto;min-height:560px}.lr-story-card--large{height:560px}.lr-story-side{min-height:560px;grid-template-rows:270px minmax(0,1fr)}.lr-story-card--image{height:270px}.lr-steps{gap:14px}.lr-step{padding:21px 18px}.lr-expressions.lr-section{padding-top:115px}}

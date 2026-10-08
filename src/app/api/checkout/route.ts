@@ -52,7 +52,7 @@ export async function POST(request: Request) {
     successUrl.searchParams.set("payment", "success");
     successUrl.searchParams.set("session_id", "{CHECKOUT_SESSION_ID}");
 
-    const cancelUrl = new URL("/", origin);
+    const cancelUrl = new URL("/?resume=report", origin);
     cancelUrl.searchParams.set("payment", "cancelled");
 
     const session = await stripe.checkout.sessions.create({
