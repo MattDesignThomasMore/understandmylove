@@ -12,7 +12,7 @@ if (!stripeSecretKey) {
 const stripe = new Stripe(stripeSecretKey);
 
 const OFFER_ID = "lover-reveal-trial";
-const PRODUCT_ID = "understandmylove-personal-love-report";
+const PRODUCT_ID = "your-personal-love-report";
 const RECURRING_PRICE_ID = "price_1UNvUgPSE25Qj4T2oo5Df8Et";
 
 // Customer pays €1.99 now.
@@ -66,8 +66,8 @@ export async function POST(request: Request) {
             currency: "eur",
             unit_amount: INITIAL_AMOUNT,
             product_data: {
-              name: "UnderstandMylove Personal Love Report",
-              description: "€1,99 • One-time payment • 7 days full access",
+              name: "Your personal love report",
+              description: "Instant access • One-time payment • Receive in mailbox",
             },
           },
           quantity: 1,
