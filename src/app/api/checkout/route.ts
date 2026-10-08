@@ -54,8 +54,7 @@ export async function POST(request: Request) {
             currency: "eur",
             unit_amount: INITIAL_AMOUNT,
             product_data: {
-              name: "7-day introductory access to your personal love report",
-              description: "One-time introductory charge. Subscription starts after 7 days.",
+              name: "Introductory access",
             },
           }, quantity: 1 },
       ],
@@ -76,8 +75,9 @@ export async function POST(request: Request) {
         checkoutAttemptId: attempt,
         primaryResult: primary,
       },
-      // Do not set payment_method_types: Stripe dynamically selects eligible
-      // local methods and wallets for this subscription.
+      // Dynamic payment methods: Stripe chooses eligible recurring-compatible
+      // local methods and wallets for the customer and connected account.
+      // Do not force payment_method_types or payment_method_configuration.
       success_url: successUrl.toString(),
       cancel_url: cancelUrl.toString(),
     }, { idempotencyKey: `uml-checkout-${attempt}` });
