@@ -307,7 +307,15 @@ export default function Home() {
       setSecondaryResultKey(ranked[1] || "time");
       setJourneyStage("analyzing");
     } else {
-      window.setTimeout(() => setQuizStep((current) => current + 1), 120);
+      // Mobile browsers can keep the tapped button focused. Clear that focus
+      // before rendering the next question so the previous answer never
+      // appears selected/highlighted on the next question.
+      window.setTimeout(() => {
+        if (document.activeElement instanceof HTMLElement) {
+          document.activeElement.blur();
+        }
+        setQuizStep((current) => current + 1);
+      }, 120);
     }
   };
 
@@ -680,7 +688,16 @@ export default function Home() {
                   <h2>{quizQuestions[quizStep].prompt}</h2>
                   <div className="lr-question-options">
                     {quizQuestions[quizStep].options.map((option, index) => (
-                      <button key={option.label} onClick={() => answerQuizQuestion(option.value)}>
+                      <button
+                        key={option.label}
+                        onClick={(event) => {
+                          // Explicitly remove focus from the tapped answer.
+                          // This prevents iOS/Android browsers from carrying
+                          // the red focus state into the next question.
+                          event.currentTarget.blur();
+                          answerQuizQuestion(option.value);
+                        }}
+                      >
                         <i>{index === 0 ? "A" : "B"}</i><span>{option.label}</span><Arrow />
                       </button>
                     ))}
@@ -889,6 +906,11 @@ export default function Home() {
         .lr-question-back{min-height:44px;gap:10px;padding:0 17px;border:1px solid rgba(33,77,69,.2);border-radius:12px;background:#fff;color:var(--ink);font-size:13px;font-weight:750;box-shadow:0 5px 18px rgba(31,72,64,.05);transition:background .2s,border-color .2s}
         .lr-question-back:hover{border-color:var(--rose);background:#fff8f5}
         .lr-question-back:focus-visible,.lr-question-options button:focus-visible{outline:3px solid var(--rose);outline-offset:3px}
+        @media (hover:none) and (pointer:coarse){
+          .lr-question-options button:focus{outline:none}
+          .lr-question-options button:focus-visible{outline:none}
+          .lr-question-options button:active{outline:none}
+        }
         @media(max-width:680px){
           .lr-journey__header{gap:12px;justify-content:space-between;padding:0 16px}
           .lr-journey__header .lr-brand{min-width:0;font-size:clamp(16px,4.4vw,19px);white-space:nowrap}
