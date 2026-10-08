@@ -744,6 +744,9 @@ export default function Home() {
                     {quizQuestions[quizStep].options.map((option, index) => (
                       <button
                         key={`quiz-${quizStep}-${index}-${option.value}`}
+                        className={selectedAnswer === option.value ? "lr-answer--selected" : ""}
+                        aria-pressed={selectedAnswer === option.value}
+                        disabled={selectedAnswer !== null}
                         type="button"
                         onPointerDown={(event) => {
                           // Prevent mobile browsers from carrying the tapped
@@ -989,6 +992,24 @@ export default function Home() {
             outline:none;
           }
         }
+        /* Explicit React selection wins over mobile hover/focus reset. */
+        .lr-question-options button.lr-answer--selected,
+        .lr-question-options button.lr-answer--selected:hover,
+        .lr-question-options button.lr-answer--selected:active,
+        .lr-question-options button.lr-answer--selected:focus,
+        .lr-question-options button.lr-answer--selected:focus-visible{
+          background:#e76f72!important;
+          border-color:#e76f72!important;
+          color:#fff!important;
+          box-shadow:0 12px 30px rgba(231,111,114,.3)!important;
+          transform:none!important;
+        }
+        .lr-question-options button.lr-answer--selected i{
+          background:rgba(255,255,255,.2)!important;
+          color:#fff!important;
+        }
+        .lr-question-options button.lr-answer--selected svg,
+        .lr-question-options button.lr-answer--selected span{color:#fff!important}
         @media (hover:hover) and (pointer:fine){
           .lr-question-options button:hover{
             border-color:var(--rose);
