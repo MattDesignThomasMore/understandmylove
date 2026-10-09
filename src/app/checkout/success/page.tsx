@@ -1,3 +1,4 @@
+import { redirect } from "next/navigation";
 import Stripe from "stripe";
 
 export const runtime = "nodejs";
@@ -49,6 +50,10 @@ export default async function CheckoutSuccess({ searchParams }: Props) {
           <a href="/">Return to the site</a>
         </main>
       );
+    }
+
+    if (/^[01]{24}$/.test(session.metadata?.reportChoices ?? "")) {
+      redirect(`/personal-report?session_id=${encodeURIComponent(session.id)}`);
     }
 
     let subscription: Stripe.Subscription | null = null;
@@ -129,6 +134,7 @@ export default async function CheckoutSuccess({ searchParams }: Props) {
       </main>
     );
   } catch (error) {
+    if (error && typeof error === "object" && "digest" in error && String(error.digest).startsWith("NEXT_REDIRECT")) throw error;
     console.error("Could not verify Stripe checkout", error);
     return (
       <main>

@@ -1,3 +1,4 @@
+import { sendPaidLoveReport } from "@/lib/report-email";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
@@ -305,6 +306,15 @@ export async function POST(request: Request) {
       case "checkout.session.completed": {
         const session = event.data.object as Stripe.Checkout.Session;
         await createSubscriptionFromCheckout(session);
+        if (session.payment_status === "paid") {
+          try {
+            await sendPaidLoveReport(session);
+          } catch (emailError) {
+            // Email is supplementary: never fail the subscription webhook because
+            // an external mail provider is unavailable.
+            console.error("Personal report email could not be sent:", emailError);
+          }
+        }
         break;
       }
 
@@ -312,6 +322,15 @@ export async function POST(request: Request) {
       case "checkout.session.async_payment_succeeded": {
         const session = event.data.object as Stripe.Checkout.Session;
         await createSubscriptionFromCheckout(session);
+        if (session.payment_status === "paid") {
+          try {
+            await sendPaidLoveReport(session);
+          } catch (emailError) {
+            // Email is supplementary: never fail the subscription webhook because
+            // an external mail provider is unavailable.
+            console.error("Personal report email could not be sent:", emailError);
+          }
+        }
         break;
       }
 

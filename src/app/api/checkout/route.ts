@@ -30,6 +30,9 @@ export async function POST(request: Request) {
         ? body.primaryResult.trim()
         : "";
 
+    const reportChoices = typeof body?.reportChoices === "string" ? body.reportChoices : "";
+    if (!/^[01]{24}$/.test(reportChoices)) return NextResponse.json({ error: "Please complete the 24 questions first." }, { status: 400 });
+
     const checkoutAttemptId =
       typeof body?.checkoutAttemptId === "string"
         ? body.checkoutAttemptId.trim()
@@ -103,6 +106,7 @@ export async function POST(request: Request) {
         offer: OFFER_ID,
         checkoutAttemptId,
         primaryResult,
+        reportChoices,
         recurring_price_id: RECURRING_PRICE_ID,
         trial_days: String(TRIAL_DAYS),
         upfront_amount: String(INITIAL_AMOUNT),

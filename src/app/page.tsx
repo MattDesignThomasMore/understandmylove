@@ -467,6 +467,7 @@ export default function Home() {
           offer: "lover-reveal-trial",
           primaryResult: quizResultKey,
           checkoutAttemptId: crypto.randomUUID(),
+          reportChoices: snapshotRef.current.answers.map((answer, index) => quizQuestions[index].options[0].value === answer ? "0" : "1").join(""),
         }),
       });
       const data = await response.json();
