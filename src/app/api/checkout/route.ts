@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 
@@ -17,6 +18,7 @@ const RECURRING_PRICE_ID = "price_1UNvUgPSE25Qj4T2oo5Df8Et";
 
 // Customer pays €1.99 now.
 const INITIAL_AMOUNT = 199;
+
 // Then €29.99/month after the 7-day trial.
 const RECURRING_AMOUNT = 2999;
 const TRIAL_DAYS = 7;
@@ -30,8 +32,17 @@ export async function POST(request: Request) {
         ? body.primaryResult.trim()
         : "";
 
-    const reportChoices = typeof body?.reportChoices === "string" ? body.reportChoices : "";
-    if (!/^[01]{24}$/.test(reportChoices)) return NextResponse.json({ error: "Please complete the 24 questions first." }, { status: 400 });
+    const reportChoices =
+      typeof body?.reportChoices === "string"
+        ? body.reportChoices
+        : "";
+
+    if (!/^[01]{24}$/.test(reportChoices)) {
+      return NextResponse.json(
+        { error: "Please complete the 24 questions first." },
+        { status: 400 }
+      );
+    }
 
     const checkoutAttemptId =
       typeof body?.checkoutAttemptId === "string"
@@ -41,7 +52,7 @@ export async function POST(request: Request) {
     if (!checkoutAttemptId) {
       return NextResponse.json(
         { error: "Invalid checkout attempt." },
-        { status: 400 },
+        { status: 400 }
       );
     }
 
@@ -51,9 +62,13 @@ export async function POST(request: Request) {
       "https://understandmylove.com"
     ).replace(/\/+$/, "");
 
-    const successUrl = new URL("/checkout/success", origin);
-    successUrl.searchParams.set("payment", "success");
-    successUrl.searchParams.set("session_id", "{CHECKOUT_SESSION_ID}");
+    // IMPORTANT:
+    // Stripe must receive {CHECKOUT_SESSION_ID} exactly as written.
+    // Do not use URLSearchParams.set() for this placeholder,
+    // because it encodes the curly braces.
+    const successUrl =
+      `${origin}/checkout/success` +
+      `?payment=success&session_id={CHECKOUT_SESSION_ID}`;
 
     const cancelUrl = new URL("/?resume=report", origin);
     cancelUrl.searchParams.set("payment", "cancelled");
@@ -70,24 +85,24 @@ export async function POST(request: Request) {
             unit_amount: INITIAL_AMOUNT,
             product_data: {
               name: "Your personal love report",
-              description: "Instant access • One-time payment • Receive in mailbox",
+              description:
+                "Instant access • One-time payment • Receive in mailbox",
             },
           },
           quantity: 1,
         },
       ],
 
-      // Card is required because the same saved card is used later for
-      // the off-session €29.99/month subscription.
       payment_method_types: ["card"],
 
       locale: "auto",
       billing_address_collection: "auto",
       customer_creation: "always",
 
-      // Tell Stripe to save the payment method for future off-session use.
+      // Save the payment method for future off-session use.
       payment_intent_data: {
         setup_future_usage: "off_session",
+
         metadata: {
           understandmylove_product: PRODUCT_ID,
           understandmylove_offer: OFFER_ID,
@@ -114,26 +129,30 @@ export async function POST(request: Request) {
         recurring_interval: "month",
       },
 
-      
+      // FIX: Pass the unencoded Stripe placeholder.
+      success_url: successUrl,
 
-      success_url: successUrl.toString(),
       cancel_url: cancelUrl.toString(),
     });
 
     if (!session.url) {
       return NextResponse.json(
         { error: "Unable to create checkout session." },
-        { status: 500 },
+        { status: 500 }
       );
     }
 
-    return NextResponse.json({ url: session.url });
+    return NextResponse.json({
+      url: session.url,
+    });
   } catch (error) {
     console.error("Stripe Checkout error:", error);
 
     return NextResponse.json(
-      { error: "Unable to start checkout. Please try again." },
-      { status: 500 },
+      {
+        error: "Unable to start checkout. Please try again.",
+      },
+      { status: 500 }
     );
   }
 }
