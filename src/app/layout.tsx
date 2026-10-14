@@ -2,6 +2,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { Geist, Geist_Mono } from "next/font/google";
+import CookieConsent from "../components/CookieConsent";
 import "./globals.css";
 
 const SITE_URL = "https://www.understandmylove.com";
@@ -146,6 +147,8 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         {children}
+
+        <CookieConsent />
 
         <script
           type="application/ld+json"
