@@ -14,18 +14,21 @@ const stripe = new Stripe(stripeSecretKey);
 
 const OFFER_ID = "lover-reveal-trial";
 const PRODUCT_ID = "your-personal-love-report";
-const RECURRING_PRICE_ID = "price_1UNvUgPSE25Qj4T2oo5Df8Et";
 
-// Customer pays €1.99 now.
+// Bestaande Stripe-prijs voor het abonnement.
+const RECURRING_PRICE_ID =
+  "price_1UNvUgPSE25Qj4T2oo5Df8Et";
+
 const INITIAL_AMOUNT = 199;
-
-// Then €29.99/month after the 7-day trial.
 const RECURRING_AMOUNT = 2999;
 const TRIAL_DAYS = 7;
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
+
+    const marketingConsent =
+      body?.marketingConsent === true;
 
     const primaryResult =
       typeof body?.primaryResult === "string"
@@ -39,7 +42,9 @@ export async function POST(request: Request) {
 
     if (!/^[01]{24}$/.test(reportChoices)) {
       return NextResponse.json(
-        { error: "Please complete the 24 questions first." },
+        {
+          error: "Please complete the 24 questions first.",
+        },
         { status: 400 }
       );
     }
@@ -58,82 +63,82 @@ export async function POST(request: Request) {
 
     const origin = (
       process.env.NEXT_PUBLIC_APP_URL ||
-      request.headers.get("origin") ||
-      "https://understandmylove.com"
+      "https://www.understandmylove.com"
     ).replace(/\/+$/, "");
 
-    // IMPORTANT:
-    // Stripe must receive {CHECKOUT_SESSION_ID} exactly as written.
-    // Do not use URLSearchParams.set() for this placeholder,
-    // because it encodes the curly braces.
     const successUrl =
       `${origin}/checkout/success` +
       `?payment=success&session_id={CHECKOUT_SESSION_ID}`;
 
-    const cancelUrl = new URL("/?resume=report", origin);
-    cancelUrl.searchParams.set("payment", "cancelled");
+    const cancelUrl = new URL(
+      "/?resume=report",
+      origin
+    );
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
+    cancelUrl.searchParams.set(
+      "payment",
+      "cancelled"
+    );
 
-      client_reference_id: checkoutAttemptId,
+    const session =
+      await stripe.checkout.sessions.create({
+        mode: "payment",
 
-      line_items: [
-        {
-          price_data: {
-            currency: "eur",
-            unit_amount: INITIAL_AMOUNT,
-            product_data: {
-              name: "Your personal love report",
-              description:
-                "Instant access • One-time payment • Receive in mailbox",
+        client_reference_id: checkoutAttemptId,
+
+        line_items: [
+          {
+            price_data: {
+              currency: "eur",
+              unit_amount: INITIAL_AMOUNT,
+              product_data: {
+                name: "Your personal love report",
+                description:
+                  "Instant access • One-time payment • Receive in mailbox",
+              },
             },
+            quantity: 1,
           },
-          quantity: 1,
+        ],
+
+        payment_method_types: ["card"],
+        locale: "auto",
+        billing_address_collection: "auto",
+        customer_creation: "always",
+
+        payment_intent_data: {
+          setup_future_usage: "off_session",
+          metadata: {
+            understandmylove_product: PRODUCT_ID,
+            understandmylove_offer: OFFER_ID,
+            checkout_attempt_id: checkoutAttemptId,
+            primary_result: primaryResult,
+            initial_amount: String(INITIAL_AMOUNT),
+            recurring_amount: String(RECURRING_AMOUNT),
+            recurring_currency: "eur",
+            recurring_interval: "month",
+            trial_days: String(TRIAL_DAYS),
+          },
         },
-      ],
-
-      payment_method_types: ["card"],
-
-      locale: "auto",
-      billing_address_collection: "auto",
-      customer_creation: "always",
-
-      // Save the payment method for future off-session use.
-      payment_intent_data: {
-        setup_future_usage: "off_session",
 
         metadata: {
-          understandmylove_product: PRODUCT_ID,
-          understandmylove_offer: OFFER_ID,
-          checkout_attempt_id: checkoutAttemptId,
-          primary_result: primaryResult,
-          initial_amount: String(INITIAL_AMOUNT),
-          recurring_amount: String(RECURRING_AMOUNT),
-          recurring_currency: "eur",
-          recurring_interval: "month",
+          product: PRODUCT_ID,
+          offer: OFFER_ID,
+          checkoutAttemptId,
+          primaryResult,
+          reportChoices,
+          meta_marketing_consent:
+            marketingConsent ? "yes" : "no",
+          recurring_price_id: RECURRING_PRICE_ID,
           trial_days: String(TRIAL_DAYS),
+          upfront_amount: String(INITIAL_AMOUNT),
+          recurring_amount: String(RECURRING_AMOUNT),
+          recurring_interval: "month",
         },
-      },
 
-      metadata: {
-        product: PRODUCT_ID,
-        offer: OFFER_ID,
-        checkoutAttemptId,
-        primaryResult,
-        reportChoices,
-        recurring_price_id: RECURRING_PRICE_ID,
-        trial_days: String(TRIAL_DAYS),
-        upfront_amount: String(INITIAL_AMOUNT),
-        recurring_amount: String(RECURRING_AMOUNT),
-        recurring_interval: "month",
-      },
-
-      // FIX: Pass the unencoded Stripe placeholder.
-      success_url: successUrl,
-
-      cancel_url: cancelUrl.toString(),
-    });
+        success_url: successUrl,
+        cancel_url: cancelUrl.toString(),
+      });
 
     if (!session.url) {
       return NextResponse.json(
@@ -150,7 +155,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       {
-        error: "Unable to start checkout. Please try again.",
+        error:
+          "Unable to start checkout. Please try again.",
       },
       { status: 500 }
     );

@@ -1,3 +1,4 @@
+import { sendMetaInitialPurchase } from "@/lib/meta-purchase";
 import { sendPaidLoveReport } from "@/lib/report-email";
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
@@ -308,6 +309,11 @@ export async function POST(request: Request) {
         await createSubscriptionFromCheckout(session);
         if (session.payment_status === "paid") {
           try {
+            await sendMetaInitialPurchase(session);
+          } catch (metaError) {
+            console.error("Meta initial Purchase could not be sent:", metaError);
+          }
+          try {
             await sendPaidLoveReport(session);
           } catch (emailError) {
             // Email is supplementary: never fail the subscription webhook because
@@ -323,6 +329,11 @@ export async function POST(request: Request) {
         const session = event.data.object as Stripe.Checkout.Session;
         await createSubscriptionFromCheckout(session);
         if (session.payment_status === "paid") {
+          try {
+            await sendMetaInitialPurchase(session);
+          } catch (metaError) {
+            console.error("Meta initial Purchase could not be sent:", metaError);
+          }
           try {
             await sendPaidLoveReport(session);
           } catch (emailError) {

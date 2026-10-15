@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { trackMetaEvent, hasMetaMarketingConsent } from "../lib/meta-events";
+
 
 type ResultKey = "communication" | "time" | "actions" | "spark" | "gifts" | "warmth" | "reassurance" | "growth";
 type JourneyStage = "home" | "intro" | "questions" | "analyzing" | "offer";
@@ -371,6 +373,9 @@ export default function Home() {
     answerLocked.current = true;
     setSelectedAnswer(value);
     const nextAnswers = [...current.answers, value];
+    if (current.answers.length === 0) {
+  trackMetaEvent("StartQuiz");
+}
     // Write immediately, before animation, navigation, tab closing or pagehide.
     const completed = nextAnswers.length === quizQuestions.length;
     const next = normalizeQuiz({answers:nextAnswers,stage:completed?"offer":"questions",updatedAt:Date.now()});
@@ -467,11 +472,19 @@ export default function Home() {
           offer: "lover-reveal-trial",
           primaryResult: quizResultKey,
           checkoutAttemptId: crypto.randomUUID(),
+          marketingConsent: hasMetaMarketingConsent(),
           reportChoices: snapshotRef.current.answers.map((answer, index) => quizQuestions[index].options[0].value === answer ? "0" : "1").join(""),
         }),
       });
       const data = await response.json();
       if (!response.ok || !data.url) throw new Error(data.error || "Checkout is temporarily unavailable.");
+      
+trackMetaEvent("InitiateCheckout", {
+  currency: "EUR",
+  value: 1.99,
+  content_name: "Personal Love Report",
+});
+
       window.location.assign(data.url);
     } catch (error) {
       setCheckoutError(error instanceof Error ? error.message : "Checkout is temporarily unavailable.");
